@@ -1,0 +1,16 @@
+{
+	"displays": {
+		"icon": {
+			"icon": "Icon"
+		},
+		"format-title": {
+			"format-title": "Format Title"
+		},
+		"rating": {
+			"rating": "Rating"
+		},
+		"raw": {
+			"raw": "Raw Value"
+		}
+	}
+}
