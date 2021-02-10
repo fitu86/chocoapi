@@ -1,0 +1,216 @@
+<template>
+	<div>
+		<h2 class="type-title">{{ $t('configure_m2o') }}</h2>
+		<div class="grid">
+			<div class="field">
+				<div class="type-label">{{ $t('this_collection') }}</div>
+				<v-input disabled :value="relations[0].many_collection" />
+			</div>
+			<div class="field">
+				<div class="type-label">{{ $t('related_collection') }}</div>
+				<v-input :class="{ matches: relatedCollectionExists }" db-safe key="related-collection" v-model="relations[0].one_collection" :disabled="isExisting" :placeholder="$t('collection') + '...'">
+					<template #append>
+						<v-menu show-arrow placement="bottom-end">
+							<template #activator="{ toggle }">
+								<v-icon name="list_alt" @click="toggle" v-tooltip="$t('select_existing')" :disabled="isExisting" />
+							</template>
+
+							<v-list dense class="monospace">
+								<v-list-item
+									v-for="item in items"
+									:key="item.value"
+									:active="relations[0].one_collection === item.value"
+									:disabled="item.disabled"
+									@click="relations[0].one_collection = item.value"
+								>
+									<v-list-item-content>
+										{{ item.text }}
+									</v-list-item-content>
+								</v-list-item>
+							</v-list>
+						</v-menu>
+					</template>
+				</v-input>
+			</div>
+			<v-input disabled :value="relations[0].many_field" />
+			<v-input db-safe :disabled="relatedCollectionExists" v-model="relations[0].one_primary" :placeholder="$t('primary_key') + '...'" />
+			<v-icon class="arrow" name="arrow_back" />
+		</div>
+
+		<v-divider large :inline-title="false" v-if="!isExisting">{{ $t('corresponding_field') }}</v-divider>
+
+		<div class="grid" v-if="!isExisting">
+			<div class="field">
+				<div class="type-label">{{ $t('create_field') }}</div>
+				<v-checkbox block :label="correspondingLabel" v-model="hasCorresponding" />
+			</div>
+			<div class="field">
+				<div class="type-label">{{ $t('field_name') }}</div>
+				<v-input :disabled="hasCorresponding === false" v-model="correspondingField" :placeholder="$t('field_name') + '...'" db-safe />
+			</div>
+			<v-icon name="arrow_forward" class="arrow" />
+		</div>
+	</div>
+</template>
+
+<script lang="ts">
+import { defineComponent, computed, watch } from '@vue/composition-api';
+import { Relation } from '@/types';
+import { Field } from '@/types';
+import { orderBy } from 'lodash';
+import useSync from '@/composables/use-sync';
+import { useCollectionsStore, useFieldsStore } from '@/stores';
+import i18n from '@/lang';
+
+import { state } from '../store';
+
+export default defineComponent({
+	props: {
+		type: {
+			type: String,
+			required: true,
+		},
+		collection: {
+			type: String,
+			required: true,
+		},
+		isExisting: {
+			type: Boolean,
+			default: false,
+		},
+	},
+	setup(props, { emit }) {
+		const collectionsStore = useCollectionsStore();
+		const fieldsStore = useFieldsStore();
+
+		const { items } = useRelation();
+		const { hasCorresponding, correspondingField, correspondingLabel } = useCorresponding();
+
+		const relatedCollectionExists = computed(() => {
+			return !!collectionsStore.getCollection(state.relations[0].one_collection);
+		});
+
+		return {
+			relations: state.relations,
+			items,
+			hasCorresponding,
+			correspondingField,
+			correspondingLabel,
+			fieldData: state.fieldData,
+			relatedCollectionExists,
+		};
+
+		function useRelation() {
+			const availableCollections = computed(() => {
+				return orderBy(
+					collectionsStore.state.collections.filter((collection) => {
+						return collection.collection.startsWith('directus_') === false;
+					}),
+					['collection'],
+					['asc']
+				);
+			});
+
+			const items = computed(() =>
+				availableCollections.value.map((collection) => ({
+					text: collection.collection,
+					value: collection.collection,
+				}))
+			);
+
+			return { items };
+		}
+
+		function useCorresponding() {
+			const hasCorresponding = computed({
+				get() {
+					return state.newFields.length > 0;
+				},
+				set(enabled: boolean) {
+					if (enabled === true) {
+						state.newFields.push({
+							$type: 'corresponding',
+							field: state.relations[0].one_collection,
+							collection: state.relations[0].one_collection,
+							meta: {
+								special: 'o2m',
+								interface: 'one-to-many',
+							},
+						});
+					} else {
+						state.newFields = state.newFields.filter((field: any) => field.$type !== 'corresponding');
+					}
+				},
+			});
+
+			const correspondingField = computed({
+				get() {
+					return state.newFields?.find((field: any) => field.$type === 'corresponding')?.field || null;
+				},
+				set(field: string | null) {
+					state.newFields = state.newFields.map((newField: any) => {
+						if (newField.$type === 'corresponding') {
+							return {
+								...newField,
+								field
+							}
+						}
+
+						return newField;
+					});
+
+					state.relations[0].one_field = field;
+				},
+			});
+
+			const correspondingLabel = computed(() => {
+				if (state.relations[0].one_collection) {
+					return i18n.t('add_o2m_to_collection', { collection: state.relations[0].one_collection });
+				}
+
+				return i18n.t('add_field_related');
+			});
+
+			return { hasCorresponding, correspondingField, correspondingLabel };
+		}
+	},
+});
+</script>
+
+<style lang="scss" scoped>
+.grid {
+	--v-select-font-family: var(--family-monospace);
+	--v-input-font-family: var(--family-monospace);
+
+	position: relative;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px 32px;
+	margin-top: 48px;
+
+	.v-input.matches {
+		--v-input-color: var(--primary);
+	}
+
+	.arrow {
+		--v-icon-color: var(--primary);
+
+		position: absolute;
+		bottom: 14px;
+		left: 50%;
+		transform: translateX(-50%);
+	}
+}
+
+.v-list {
+	--v-list-item-content-font-family: var(--family-monospace);
+}
+
+.v-divider {
+	margin: 48px 0;
+}
+
+.type-label {
+	margin-bottom: 8px;
+}
+</style>
